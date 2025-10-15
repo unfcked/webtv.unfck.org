@@ -1,29 +1,31 @@
+import { getScheduleVideos } from '@/lib/un-api';
+import { VideoTable } from '@/components/video-table';
+import Image from 'next/image';
 
-export default function Home() {
+export default async function Home() {
+    const videos = await getScheduleVideos(14); // Fetch last 14 days
+
     return (
-        <main className="min-h-screen bg-background flex justify-center px-4 sm:px-6">
-            <div className="max-w-2xl lg:max-w-3xl py-8">
-                {/* Logo */}
-                <img
+        <main className="min-h-screen bg-background px-4 sm:px-6">
+            <div className="max-w-[1600px] mx-auto py-8">
+                <Image
                     src="/images/UN Logo_Horizontal_English/Colour/UN Logo_Horizontal_Colour_English.svg"
                     alt="UN Logo"
-                    className="h-10 sm:h-12 w-auto select-none mb-12"
-                    draggable="false"
+                    width={200}
+                    height={40}
+                    className="h-10 w-auto mb-8"
                 />
 
-                {/* Header */}
-                <header className="mb-5">
-                    <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold text-foreground">
-                        UN Website Boilerplate
+                <header className="mb-8">
+                    <h1 className="text-3xl font-semibold mb-2">
+                        UN Web TV Schedule
                     </h1>
+                    <p className="text-muted-foreground">
+                        {videos.length} videos from tomorrow to the past 14 days with live status tracking
+                    </p>
                 </header>
 
-                {/* Content */}
-                <section>
-                    <p className="text-muted-foreground leading-relaxed">
-                        A modern, responsive foundation for United Nations web applications.
-                    </p>
-                </section>
+                <VideoTable videos={videos} />
             </div>
         </main>
     );

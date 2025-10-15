@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# UN Web TV Transcribed
+
+Browse UN Web TV videos with transcripts of all speeches.
+
+## Overview
+
+This app displays videos from [UN Web TV](https://webtv.un.org/en/schedule) in a filterable table with enhanced metadata extraction. The goal is to provide easy access to UN speeches and meetings with rich searchable metadata.
+
+### Current Features
+
+- **Enhanced Metadata Extraction**: Automatically extracts structured data from video titles
+- **Real-time Status Tracking**: Color-coded badges showing if events are 🔴 Live, Scheduled, or Finished
+- **Smart Sorting**: Sorts by status first (Live → Scheduled → Finished), then by date/time
+- **Filterable Data Table**: Sortable, searchable table with pagination (powered by TanStack Table)
+- **Multi-day Fetching**: Displays videos from 1 day ahead to 14 days in the past (configurable)
+- **Global Search**: Real-time filtering across all columns
+- **Smart Column Filters**: 
+  - **Date dropdown** for When column (Tomorrow, Today, Yesterday, specific dates with weekdays)
+  - **Dropdown filters** for categorical data (Status, Body)
+  - **Text filter** for Title search
+  - Each column uses the most appropriate filter UI
+- **Active Filters Display**: See all active filters with one-click removal
+- **Direct Links**: Click any video title to view it on the official UN Web TV site
+
+### Extracted Metadata Fields
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| **When** | Relative date & time with weekday | Tomorrow 10:00 AM, Today 10:30 AM, Yesterday 2:15 PM, Wed, Oct 9 9:00 AM |
+| **Status** | Event status badge (based on time & duration) | 🔴 Live, Scheduled, Finished |
+| **Title** | Full title (event code removed) | High-Level Event, Second Committee, 9th plenary meeting - General Assembly, 80th session |
+| **Body** | UN body (committee, council, or assembly) | Fourth Committee, General Assembly, Security Council |
+
+**Title Cleaning:** The app removes event code prefixes from titles:
+- Event codes (EM07, GO19, etc.) → removed from display (extracted to metadata)
+- Everything else remains in the title as-is for full context
+
+### Technical Details
+
+**Data Fetching:**
+- No official API exists - data is scraped from the HTML
+- Fetches 14 dates in parallel for performance
+- Page data cached for 5 minutes
+- Videos hosted on Kaltura (partner ID: 2503451)
+
+**Metadata Extraction:**
+- Regex-based title parsing for structured data
+- Extracts event codes, committee names, session numbers, part numbers
+- Identifies organizations from titles and descriptions
+- Scheduled time with timezone from HTML
 
 ## Getting Started
 
-First, run the development server:
+First, install dependencies:
+
+```bash
+npm install
+```
+
+Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to view the app.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `app/page.tsx` - Main page (server component, fetches data)
+- `components/video-table.tsx` - Filterable table (client component with TanStack Table)
+- `lib/un-api.ts` - Scraping logic with enhanced metadata extraction
+- `app/globals.css` - Tailwind CSS v4 styling with UN color palette
 
-## Learn More
+## Tech Stack
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Framework**: Next.js v15.4 with Server Components
+- **Styling**: Tailwind CSS v4
+- **Table**: TanStack Table v8 (headless, sortable, filterable)
+- **UI Components**: shadcn/ui base
