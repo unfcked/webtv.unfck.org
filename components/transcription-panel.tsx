@@ -10,15 +10,21 @@ interface TranscriptionPanelProps {
 interface Word {
   text: string;
   speaker?: string | null; // AssemblyAI uses "speaker" (e.g., "A", "B", "C")
-  start?: number | null; // Milliseconds
-  end?: number | null; // Milliseconds
+  start: number; // Milliseconds
+  end: number; // Milliseconds
+}
+
+interface Paragraph {
+  text: string;
+  start: number; // Milliseconds
+  end: number; // Milliseconds
+  words: Word[];
 }
 
 interface SpeakerSegment {
   speaker: string;
-  text: string;
-  timestamp: number | null;
-  words?: Word[];
+  paragraphs: Paragraph[];
+  timestamp: number;
 }
 
 export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProps) {
@@ -29,8 +35,10 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
   const [checking, setChecking] = useState(true);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
+  const [activeParagraphIndex, setActiveParagraphIndex] = useState<number>(-1);
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const paragraphRefs = useRef<Map<string, HTMLParagraphElement>>(new Map());
   const wordRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
 
   const formatTime = (seconds: number | null | undefined): string => {
@@ -62,7 +70,6 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
       'text-indigo-600 dark:text-indigo-400',
     ];
     
-    // Hash the speaker ID to get consistent colors
     const hash = speakerId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     return colors[hash % colors.length];
   };
@@ -83,49 +90,97 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
     }
   };
 
-  const formatTranscript = (words: Word[]): SpeakerSegment[] => {
+  const formatParagraphs = (paragraphsData: Paragraph[]): SpeakerSegment[] => {
+    // Flatten all words from paragraphs and convert timestamps
+    const allWords = paragraphsData.flatMap(para => 
+      para.words.map(word => ({
+        ...word,
+        start: word.start / 1000,
+        end: word.end / 1000,
+      }))
+    );
+
+    // First, group words by speaker
     const segments: SpeakerSegment[] = [];
     let currentSpeaker: string | null = null;
     let currentWords: Word[] = [];
-    let currentTimestamp: number | null = null;
+    let currentTimestamp = 0;
 
-    words.forEach((word) => {
-      // Convert milliseconds to seconds for timestamps
-      const wordWithSeconds = {
-        ...word,
-        start: word.start !== null && word.start !== undefined ? word.start / 1000 : null,
-        end: word.end !== null && word.end !== undefined ? word.end / 1000 : null,
-      };
-      
+    allWords.forEach((word) => {
       const speaker = word.speaker || 'Unknown';
       
       if (speaker !== currentSpeaker) {
         if (currentWords.length > 0) {
-          segments.push({ 
-            speaker: currentSpeaker || 'Unknown', 
-            text: currentWords.map(w => w.text).join(' ').trim(),
+          // Now insert paragraph breaks within this speaker segment
+          const paragraphs = insertParagraphBreaks(currentWords, paragraphsData);
+          segments.push({
+            speaker: currentSpeaker || 'Unknown',
+            paragraphs,
             timestamp: currentTimestamp,
-            words: currentWords
           });
         }
         currentSpeaker = speaker;
-        currentWords = [wordWithSeconds];
-        currentTimestamp = wordWithSeconds.start;
+        currentWords = [word];
+        currentTimestamp = word.start;
       } else {
-        currentWords.push(wordWithSeconds);
+        currentWords.push(word);
       }
     });
 
     if (currentWords.length > 0) {
-      segments.push({ 
-        speaker: currentSpeaker || 'Unknown', 
-        text: currentWords.map(w => w.text).join(' ').trim(),
+      const paragraphs = insertParagraphBreaks(currentWords, paragraphsData);
+      segments.push({
+        speaker: currentSpeaker || 'Unknown',
+        paragraphs,
         timestamp: currentTimestamp,
-        words: currentWords
       });
     }
 
     return segments;
+  };
+
+  // Helper to insert paragraph breaks within a speaker's words
+  const insertParagraphBreaks = (words: Word[], originalParagraphs: Paragraph[]): Paragraph[] => {
+    if (words.length === 0) return [];
+
+    // Create a set of paragraph boundary timestamps
+    const paragraphBoundaries = new Set(
+      originalParagraphs.map(p => p.start / 1000)
+    );
+
+    const paragraphs: Paragraph[] = [];
+    let currentParagraphWords: Word[] = [];
+    let currentParagraphStart = words[0].start;
+
+    words.forEach((word, index) => {
+      currentParagraphWords.push(word);
+
+      // Check if next word starts a new paragraph
+      const nextWord = words[index + 1];
+      if (nextWord && paragraphBoundaries.has(nextWord.start)) {
+        // End current paragraph
+        paragraphs.push({
+          text: currentParagraphWords.map(w => w.text).join(' '),
+          start: currentParagraphStart,
+          end: word.end,
+          words: currentParagraphWords,
+        });
+        currentParagraphWords = [];
+        currentParagraphStart = nextWord.start;
+      }
+    });
+
+    // Add final paragraph
+    if (currentParagraphWords.length > 0) {
+      paragraphs.push({
+        text: currentParagraphWords.map(w => w.text).join(' '),
+        start: currentParagraphStart,
+        end: currentParagraphWords[currentParagraphWords.length - 1].end,
+        words: currentParagraphWords,
+      });
+    }
+
+    return paragraphs;
   };
 
   const handleTranscribe = async (force = false) => {
@@ -145,8 +200,8 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
       }
       
       const data = await response.json();
-      if (data.words && data.words.length > 0) {
-        setSegments(formatTranscript(data.words));
+      if (data.paragraphs && data.paragraphs.length > 0) {
+        setSegments(formatParagraphs(data.paragraphs));
       }
       setCached(data.cached || false);
     } catch (err) {
@@ -172,9 +227,11 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
       if (segment.timestamp !== null) {
         rtf += ` [${formatTime(segment.timestamp)}]`;
       }
-      rtf += ':}\\line\n';
-      rtf += segment.text.replace(/\\/g, '\\\\').replace(/{/g, '\\{').replace(/}/g, '\\}');
-      rtf += '\\line\\line\n';
+      rtf += ':}\\line\\line\n';
+      segment.paragraphs.forEach(para => {
+        rtf += para.text.replace(/\\/g, '\\\\').replace(/{/g, '\\{').replace(/}/g, '\\}');
+        rtf += '\\line\\line\n';
+      });
     });
     rtf += '}';
     
@@ -199,8 +256,8 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
         
         if (response.ok) {
           const data = await response.json();
-          if (data.cached && data.words && data.words.length > 0) {
-            setSegments(formatTranscript(data.words));
+          if (data.cached && data.paragraphs && data.paragraphs.length > 0) {
+            setSegments(formatParagraphs(data.paragraphs));
             setCached(true);
           }
         }
@@ -247,7 +304,7 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
 
     // Find the segment that should be active based on current time
     for (let i = segments.length - 1; i >= 0; i--) {
-      if (segments[i].timestamp !== null && currentTime >= segments[i].timestamp!) {
+      if (currentTime >= segments[i].timestamp) {
         setActiveSegmentIndex(i);
         return;
       }
@@ -256,29 +313,54 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
     setActiveSegmentIndex(-1);
   }, [currentTime, segments]);
 
-  // Calculate active word within active segment
+  // Calculate active paragraph within active segment
   useEffect(() => {
-    if (activeSegmentIndex < 0 || !segments || !segments[activeSegmentIndex]?.words) {
-      setActiveWordIndex(-1);
+    if (activeSegmentIndex < 0 || !segments || !segments[activeSegmentIndex]?.paragraphs) {
+      setActiveParagraphIndex(-1);
       return;
     }
 
     const segment = segments[activeSegmentIndex];
-    for (let i = segment.words!.length - 1; i >= 0; i--) {
-      const word = segment.words![i];
-      if (word.start !== null && word.start !== undefined && currentTime >= word.start) {
+    for (let i = segment.paragraphs.length - 1; i >= 0; i--) {
+      const paragraph = segment.paragraphs[i];
+      if (currentTime >= paragraph.start) {
+        setActiveParagraphIndex(i);
+        return;
+      }
+    }
+    
+    setActiveParagraphIndex(-1);
+  }, [currentTime, activeSegmentIndex, segments]);
+
+  // Calculate active word within active paragraph
+  useEffect(() => {
+    if (activeSegmentIndex < 0 || activeParagraphIndex < 0 || !segments) {
+      setActiveWordIndex(-1);
+      return;
+    }
+
+    const paragraph = segments[activeSegmentIndex]?.paragraphs[activeParagraphIndex];
+    if (!paragraph?.words) {
+      setActiveWordIndex(-1);
+      return;
+    }
+
+    for (let i = paragraph.words.length - 1; i >= 0; i--) {
+      const word = paragraph.words[i];
+      if (currentTime >= word.start) {
         setActiveWordIndex(i);
         return;
       }
     }
     
     setActiveWordIndex(-1);
-  }, [currentTime, activeSegmentIndex, segments]);
+  }, [currentTime, activeSegmentIndex, activeParagraphIndex, segments]);
 
-  // Auto-scroll to active segment (position at top 1/3 of viewport)
+  // Auto-scroll to active paragraph (position at top 1/3 of viewport)
   useEffect(() => {
-    if (activeSegmentIndex >= 0 && segmentRefs.current[activeSegmentIndex]) {
-      const element = segmentRefs.current[activeSegmentIndex];
+    if (activeSegmentIndex >= 0 && activeParagraphIndex >= 0) {
+      const key = `${activeSegmentIndex}-${activeParagraphIndex}`;
+      const element = paragraphRefs.current.get(key);
       if (element) {
         const elementTop = element.getBoundingClientRect().top + window.scrollY;
         const offset = window.innerHeight / 3;
@@ -288,7 +370,7 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
         });
       }
     }
-  }, [activeSegmentIndex]);
+  }, [activeSegmentIndex, activeParagraphIndex]);
 
   return (
     <div>
@@ -351,65 +433,66 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
               <span>✓</span> Loaded from cache
             </div>
           )}
-          {segments.map((segment, index) => {
-            const isActive = index === activeSegmentIndex;
+          {segments.map((segment, segmentIndex) => {
+            const isSegmentActive = segmentIndex === activeSegmentIndex;
             return (
               <div 
-                key={index} 
-                className="space-y-1"
-                ref={(el) => { segmentRefs.current[index] = el; }}
+                key={segmentIndex} 
+                className="space-y-2"
+                ref={(el) => { segmentRefs.current[segmentIndex] = el; }}
               >
                 <div className="flex items-center gap-2">
                   <div className={`text-sm font-semibold uppercase tracking-wide ${getSpeakerColor(segment.speaker)}`}>
                     Speaker {cleanSpeakerId(segment.speaker)}
                   </div>
-                  {segment.timestamp != null && (
-                    <button
-                      onClick={() => seekToTimestamp(segment.timestamp!)}
-                      className="text-xs text-muted-foreground hover:text-primary hover:underline cursor-pointer transition-colors"
-                      title="Jump to this timestamp"
-                    >
-                      [{formatTime(segment.timestamp)}]
-                    </button>
-                  )}
+                  <button
+                    onClick={() => seekToTimestamp(segment.timestamp)}
+                    className="text-xs text-muted-foreground hover:text-primary hover:underline cursor-pointer transition-colors"
+                    title="Jump to this timestamp"
+                  >
+                    [{formatTime(segment.timestamp)}]
+                  </button>
                 </div>
-                <div 
-                  className={`p-4 rounded-lg transition-all duration-200 ${
-                    isActive 
-                      ? 'bg-primary/10 border-2 border-primary/50' 
-                      : 'bg-muted/50 border-2 border-transparent'
-                  }`}
-                >
-                  <div className="relative text-sm leading-relaxed">
-                    {segment.words ? (
-                      <p>
-                        {segment.words.map((word, wordIndex) => {
-                          const isWordActive = isActive && wordIndex === activeWordIndex;
-                          const hasTimestamp = word.start !== null && word.start !== undefined;
-                          
-                          return (
-                            <span
-                              key={wordIndex}
-                              ref={(el) => {
-                                if (el) wordRefs.current.set(`${index}-${wordIndex}`, el);
-                              }}
-                              onClick={() => hasTimestamp && seekToTimestamp(word.start!)}
-                              className={`relative ${hasTimestamp ? 'cursor-pointer hover:opacity-70' : ''}`}
-                              style={{
-                                textDecoration: isWordActive ? 'underline' : 'none',
-                                textDecorationColor: isWordActive ? 'hsl(var(--primary))' : 'transparent',
-                                textDecorationThickness: '2px',
-                                textUnderlineOffset: '3px',
-                              }}
-                            >
-                              {word.text}{' '}
-                            </span>
-                          );
-                        })}
-                      </p>
-                    ) : (
-                      <p>{segment.text}</p>
-                    )}
+                <div className={`p-4 rounded-lg transition-all duration-200 ${
+                  isSegmentActive 
+                    ? 'bg-primary/10 border-2 border-primary/50' 
+                    : 'bg-muted/50 border-2 border-transparent'
+                }`}>
+                  <div className="space-y-3 text-sm leading-relaxed">
+                    {segment.paragraphs.map((paragraph, paraIndex) => {
+                      const isParaActive = isSegmentActive && paraIndex === activeParagraphIndex;
+                      return (
+                        <p 
+                          key={paraIndex}
+                          ref={(el) => {
+                            if (el) paragraphRefs.current.set(`${segmentIndex}-${paraIndex}`, el);
+                          }}
+                        >
+                          {paragraph.words.map((word, wordIndex) => {
+                            const isWordActive = isParaActive && wordIndex === activeWordIndex;
+                            
+                            return (
+                              <span
+                                key={wordIndex}
+                                ref={(el) => {
+                                  if (el) wordRefs.current.set(`${segmentIndex}-${paraIndex}-${wordIndex}`, el);
+                                }}
+                                onClick={() => seekToTimestamp(word.start)}
+                                className="relative cursor-pointer hover:opacity-70"
+                                style={{
+                                  textDecoration: isWordActive ? 'underline' : 'none',
+                                  textDecorationColor: isWordActive ? 'hsl(var(--primary))' : 'transparent',
+                                  textDecorationThickness: '2px',
+                                  textUnderlineOffset: '3px',
+                                }}
+                              >
+                                {word.text}{' '}
+                              </span>
+                            );
+                          })}
+                        </p>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

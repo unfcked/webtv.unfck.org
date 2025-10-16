@@ -8,7 +8,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Kaltura ID is required' }, { status: 400 });
     }
 
-    // Get video download URL from Kaltura
+    // Get audio download URL from Kaltura
+    // flavorParamIds 100-117 are audio-only tracks in different languages
     const apiResponse = await fetch('https://cdnapisec.kaltura.com/api_v3/service/multirequest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
           filter: { redirectFromEntryId: kalturaId },
           responseProfile: {
             type: 1,
-            fields: 'id,downloadUrl,duration',
+            fields: 'id,duration',
           },
         },
         apiVersion: '3.3.0',
@@ -41,11 +42,14 @@ export async function POST(request: NextRequest) {
     }
 
     const apiData = await apiResponse.json();
-    const downloadUrl = apiData[1]?.objects?.[0]?.downloadUrl;
+    const entryId = apiData[1]?.objects?.[0]?.id;
     
-    if (!downloadUrl) {
-      return NextResponse.json({ error: 'No download URL found' }, { status: 404 });
+    if (!entryId) {
+      return NextResponse.json({ error: 'No entry found' }, { status: 404 });
     }
+
+    // Request English audio track (flavorParamId 100) - smallest file size
+    const downloadUrl = `https://cdnapisec.kaltura.com/p/2503451/sp/0/playManifest/entryId/${entryId}/format/download/protocol/https/flavorParamIds/100`;
 
     // Check AssemblyAI for existing transcript (unless force=true)
     if (!force) {
@@ -66,9 +70,17 @@ export async function POST(request: NextRequest) {
           
           if (detailResponse.ok) {
             const detail = await detailResponse.json();
+            
+            // Fetch paragraphs for cached transcript too
+            const paragraphsResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${existing.id}/paragraphs`, {
+              headers: { 'Authorization': process.env.ASSEMBLYAI_API_KEY! },
+            });
+            const paragraphsData = paragraphsResponse.ok ? await paragraphsResponse.json() : null;
+            
             return NextResponse.json({
               text: detail.text,
               words: detail.words || [],
+              paragraphs: paragraphsData?.paragraphs || null,
               language: detail.language_code,
               cached: true,
             });
@@ -125,9 +137,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Fetch paragraphs for better formatting
+    const paragraphsResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}/paragraphs`, {
+      headers: { 'Authorization': process.env.ASSEMBLYAI_API_KEY! },
+    });
+
+    const paragraphsData = paragraphsResponse.ok ? await paragraphsResponse.json() : null;
+
     return NextResponse.json({
       text: transcript.text,
       words: transcript.words || [],
+      paragraphs: paragraphsData?.paragraphs || null,
       language: transcript.language_code,
       cached: false,
     });

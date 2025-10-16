@@ -1,4 +1,4 @@
-// Helper to get Kaltura download URL for a given ID
+// Helper to get Kaltura audio download URL for a given ID
 async function getKalturaDownloadUrl(kalturaId: string): Promise<string | null> {
   try {
     const apiResponse = await fetch('https://cdnapisec.kaltura.com/api_v3/service/multirequest', {
@@ -17,7 +17,7 @@ async function getKalturaDownloadUrl(kalturaId: string): Promise<string | null> 
           filter: { redirectFromEntryId: kalturaId },
           responseProfile: {
             type: 1,
-            fields: 'id,downloadUrl,duration',
+            fields: 'id',
           },
         },
         apiVersion: '3.3.0',
@@ -30,7 +30,12 @@ async function getKalturaDownloadUrl(kalturaId: string): Promise<string | null> 
 
     if (!apiResponse.ok) return null;
     const apiData = await apiResponse.json();
-    return apiData[1]?.objects?.[0]?.downloadUrl || null;
+    const entryId = apiData[1]?.objects?.[0]?.id;
+    
+    if (!entryId) return null;
+    
+    // Request English audio track (flavorParamId 100)
+    return `https://cdnapisec.kaltura.com/p/2503451/sp/0/playManifest/entryId/${entryId}/format/download/protocol/https/flavorParamIds/100`;
   } catch {
     return null;
   }
