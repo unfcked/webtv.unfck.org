@@ -1,3 +1,23 @@
+import Redis from 'ioredis';
+
+const redis = new Redis(process.env.REDIS_URL!);
+
+function extractKalturaId(assetId: string): string | null {
+  // Handle formats like k1a/k1a7f1gn3l → 1_a7f1gn3l
+  const kMatch = assetId.match(/k1([a-z0-9])\/k1([a-z0-9]+)/i);
+  if (kMatch) {
+    return `1_${kMatch[2]}`;
+  }
+  
+  // Handle format like k12/k1251fzd6n → 1_251fzd6n
+  const k12Match = assetId.match(/k1(\d+)\/k1(.+)/i);
+  if (k12Match) {
+    return `1_${k12Match[2]}`;
+  }
+  
+  return null;
+}
+
 export interface Video {
   id: string;
   url: string;
@@ -13,6 +33,7 @@ export interface Video {
   body: string | null; // UN body (committee, council, assembly, etc.)
   sessionNumber: string | null;
   partNumber: number | null;
+  hasTranscript: boolean;
 }
 
 function extractTextContent(html: string): string {
@@ -34,8 +55,16 @@ function formatDate(date: Date): string {
 function calculateStatus(scheduledTime: string | null, duration: string): 'finished' | 'live' | 'scheduled' {
   if (!scheduledTime) return 'finished';
   
+  // UN Web TV has broken timezone data in their ISO timestamps.
+  // Their workaround: slice off timezone, treat as UTC, then convert to local time.
+  // Source: https://webtv.un.org/sites/default/files/js/js_dA57f4jZ0sYpTuwvbXRb5Fns6GZvR5BtfWCN9UflmWI.js
+  // Code: `const date_time=node.textContent.slice(0,19); let time=luxon.DateTime.fromISO(date_time,{'zone':'UTC'});`
+  // Example: "2025-10-15T16:00:00-04:00" becomes "2025-10-15T16:00:00" treated as UTC
+  // This is absolutely fucked up, but we need to match their display to avoid user confusion.
+  const dateTimeWithoutTz = scheduledTime.slice(0, 19); // Remove timezone offset
+  const startTime = new Date(dateTimeWithoutTz + 'Z'); // Append 'Z' to treat as UTC
+  
   const now = new Date();
-  const startTime = new Date(scheduledTime);
   
   // Parse duration (format: HH:MM:SS)
   const [hours, minutes, seconds] = duration.split(':').map(Number);
@@ -132,10 +161,18 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
   const videos: Video[] = [];
   const seen = new Set<string>();
   
+  // First, extract all timezone divs with their node IDs
+  const timezoneMap = new Map<string, string>();
+  const timezonePattern = /<div class="d-none mediaun-timezone" data-nid="(\d+)">([^<]+)<\/div>/g;
+  for (const match of html.matchAll(timezonePattern)) {
+    const [, nid, timestamp] = match;
+    timezoneMap.set(nid, timestamp);
+  }
+  
   const videoBlockPattern = /<h6[^>]*>([^<]+)<\/h6>[\s\S]*?<h4[^>]*>[\s\S]*?href="\/en\/asset\/([^"]+)"[^>]*>[\s\S]*?<div class="field__item">([^<]+)<\/div>/g;
   
   for (const match of html.matchAll(videoBlockPattern)) {
-    const [, category, assetId, title] = match;
+    const [fullMatch, category, assetId, title] = match;
     
     if (seen.has(assetId)) continue;
     seen.add(assetId);
@@ -144,10 +181,15 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
     const durationPattern = new RegExp(`<span class="badge[^"]*">(\\d{2}:\\d{2}:\\d{2})<\\/span>[\\s\\S]{0,500}?href="\\/en\\/asset\\/${assetId.replace(/\//g, '\\/')}"`);
     const durationMatch = html.match(durationPattern);
     
-    // Extract scheduled time (ISO timestamp with timezone)
-    const timePattern = new RegExp(`<div class="d-none mediaun-timezone"[^>]*>([^<]+)</div>[\\s\\S]{0,500}?href="\\/en\\/asset\\/${assetId.replace(/\//g, '\\/').replace(/\(/g, '\\(').replace(/\)/g, '\\)')}"`);
-    const timeMatch = html.match(timePattern);
-    const scheduledTime = timeMatch?.[1] || null;
+    // Extract scheduled time by finding the closest preceding timezone div
+    // Look backwards from the current match position
+    const matchIndex = html.indexOf(fullMatch);
+    const precedingHtml = html.substring(Math.max(0, matchIndex - 2000), matchIndex);
+    
+    // Find all data-nid occurrences and take the last one (closest to our match)
+    const nidMatches = Array.from(precedingHtml.matchAll(/data-nid="(\d+)"/g));
+    const lastNidMatch = nidMatches.length > 0 ? nidMatches[nidMatches.length - 1] : null;
+    const scheduledTime = lastNidMatch && timezoneMap.has(lastNidMatch[1]) ? timezoneMap.get(lastNidMatch[1])! : null;
     
     // Extract metadata from title and category
     const rawTitle = extractTextContent(title);
@@ -169,6 +211,7 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
       scheduledTime,
       status,
       ...titleMetadata,
+      hasTranscript: false, // Will be updated later
     });
   }
   
@@ -198,6 +241,22 @@ export async function getScheduleVideos(days: number = 7): Promise<Video[]> {
   // Remove duplicates by ID
   const uniqueVideos = Array.from(
     new Map(allVideos.map(v => [v.id, v])).values()
+  );
+  
+  // Check Redis for transcripts
+  await Promise.all(
+    uniqueVideos.map(async (video) => {
+      const kalturaId = extractKalturaId(video.id);
+      if (kalturaId) {
+        try {
+          const cached = await redis.get(`transcript:${kalturaId}`);
+          video.hasTranscript = !!cached;
+        } catch (err) {
+          console.log('Redis check failed for', kalturaId, err);
+          video.hasTranscript = false;
+        }
+      }
+    })
   );
   
   // Sort by date descending (newest first)

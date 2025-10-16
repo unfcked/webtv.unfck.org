@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   useReactTable,
   getCoreRowModel,
@@ -18,12 +19,26 @@ import { Video } from '@/lib/un-api';
 // Extend column meta to include filter components
 declare module '@tanstack/react-table' {
   interface ColumnMeta<TData, TValue> {
-    filterComponent?: (props: { column: Column<TData, TValue>; options?: string[] }) => JSX.Element;
+    filterComponent?: (props: { column: Column<TData, TValue>; options?: string[] }) => React.JSX.Element;
     filterOptions?: string[];
   }
 }
 
 const columnHelper = createColumnHelper<Video>();
+
+// Helper to get date at local midnight for comparison
+function getLocalMidnight(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+// Apply UN Web TV's fucked-up timezone workaround
+// Their timestamps have incorrect timezone offsets, so they slice them off and treat as UTC
+// Source: https://webtv.un.org/sites/default/files/js/js_dA57f4jZ0sYpTuwvbXRb5Fns6GZvR5BtfWCN9UflmWI.js
+// Code: `const date_time=node.textContent.slice(0,19); let time=luxon.DateTime.fromISO(date_time,{'zone':'UTC'});`
+function parseUNTimestamp(timestamp: string): Date {
+  const dateTimeWithoutTz = timestamp.slice(0, 19); // Remove timezone offset
+  return new Date(dateTimeWithoutTz + 'Z'); // Append 'Z' to treat as UTC
+}
 
 function SelectFilter({ column, options = [] }: { column: Column<Video, unknown>; options?: string[] }) {
   const filterValue = column.getFilterValue() as string;
@@ -81,12 +96,36 @@ function DateFilter({ column, options = [] }: { column: Column<Video, unknown>; 
 }
 
 export function VideoTable({ videos }: { videos: Video[] }) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'status', desc: false }, // Live first, then scheduled, then finished
     { id: 'scheduledTime', desc: true }
   ]);
-  const [globalFilter, setGlobalFilter] = useState('');
+  const [globalFilter, setGlobalFilter] = useState(searchParams.get('q') || '');
+
+  // Sync URL to globalFilter (when URL changes via back/forward)
+  useEffect(() => {
+    const urlQuery = searchParams.get('q') || '';
+    setGlobalFilter(urlQuery);
+  }, [searchParams]);
+
+  // Sync globalFilter to URL (when filter changes)
+  useEffect(() => {
+    const currentQuery = searchParams.get('q') || '';
+    if (globalFilter !== currentQuery) {
+      const params = new URLSearchParams(searchParams.toString());
+      if (globalFilter) {
+        params.set('q', globalFilter);
+      } else {
+        params.delete('q');
+      }
+      const newUrl = params.toString() ? `?${params.toString()}` : '/';
+      router.replace(newUrl, { scroll: false });
+    }
+  }, [globalFilter, searchParams, router]);
 
   // Extract unique values for dropdowns
   const uniqueBodies = useMemo(() => 
@@ -98,7 +137,7 @@ export function VideoTable({ videos }: { videos: Video[] }) {
   const uniqueDates = useMemo(() => {
     const dateLabels = new Set<string>();
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const today = getLocalMidnight(now);
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
     const tomorrow = new Date(today);
@@ -108,8 +147,8 @@ export function VideoTable({ videos }: { videos: Video[] }) {
       const time = v.scheduledTime;
       if (!time) return;
       
-      const date = new Date(time);
-      const videoDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const date = parseUNTimestamp(time);
+      const videoDate = getLocalMidnight(date);
       
       if (videoDate.getTime() === tomorrow.getTime()) {
         dateLabels.add('Tomorrow');
@@ -121,7 +160,7 @@ export function VideoTable({ videos }: { videos: Video[] }) {
         dateLabels.add(date.toLocaleDateString('en-US', { 
           weekday: 'short', 
           month: 'short', 
-          day: 'numeric' 
+          day: 'numeric'
         }));
       }
     });
@@ -137,14 +176,16 @@ export function VideoTable({ videos }: { videos: Video[] }) {
           const time = info.getValue();
           if (!time) return new Date(info.row.original.date).toLocaleDateString();
           
-          const date = new Date(time);
+          // Apply UN's timezone workaround (see parseUNTimestamp comment above)
+          const date = parseUNTimestamp(time);
+          
           const now = new Date();
-          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const today = getLocalMidnight(now);
           const yesterday = new Date(today);
           yesterday.setDate(yesterday.getDate() - 1);
           const tomorrow = new Date(today);
           tomorrow.setDate(tomorrow.getDate() + 1);
-          const videoDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          const videoDate = getLocalMidnight(date);
           
           let dateStr;
           if (videoDate.getTime() === tomorrow.getTime()) {
@@ -154,15 +195,18 @@ export function VideoTable({ videos }: { videos: Video[] }) {
           } else if (videoDate.getTime() === yesterday.getTime()) {
             dateStr = 'Yesterday';
           } else {
-            // For older dates, show weekday + date
             dateStr = date.toLocaleDateString('en-US', { 
               weekday: 'short', 
               month: 'short', 
-              day: 'numeric' 
+              day: 'numeric'
             });
           }
           
-          const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+          const timeStr = date.toLocaleTimeString('en-US', { 
+            hour: 'numeric', 
+            minute: '2-digit', 
+            hour12: true
+          });
           return `${dateStr} ${timeStr}`;
         },
         size: 160,
@@ -171,14 +215,14 @@ export function VideoTable({ videos }: { videos: Video[] }) {
           const time = row.getValue(columnId) as string | null;
           if (!time) return false;
           
-          const date = new Date(time);
+          const date = parseUNTimestamp(time);
           const now = new Date();
-          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const today = getLocalMidnight(now);
           const yesterday = new Date(today);
           yesterday.setDate(yesterday.getDate() - 1);
           const tomorrow = new Date(today);
           tomorrow.setDate(tomorrow.getDate() + 1);
-          const videoDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          const videoDate = getLocalMidnight(date);
           
           let dateStr;
           if (videoDate.getTime() === tomorrow.getTime()) {
@@ -191,7 +235,7 @@ export function VideoTable({ videos }: { videos: Video[] }) {
             dateStr = date.toLocaleDateString('en-US', { 
               weekday: 'short', 
               month: 'short', 
-              day: 'numeric' 
+              day: 'numeric'
             });
           }
           
@@ -261,6 +305,28 @@ export function VideoTable({ videos }: { videos: Video[] }) {
         meta: {
           filterComponent: SelectFilter,
           filterOptions: uniqueBodies,
+        },
+      }),
+      columnHelper.accessor('hasTranscript', {
+        header: 'Transcript',
+        cell: (info) => {
+          const hasTranscript = info.getValue();
+          return hasTranscript ? (
+            <span className="text-green-600 text-sm">✓</span>
+          ) : (
+            <span className="text-gray-300 text-sm">—</span>
+          );
+        },
+        size: 80,
+        enableColumnFilter: true,
+        filterFn: (row, columnId, filterValue) => {
+          if (filterValue === 'Yes') return row.getValue(columnId) === true;
+          if (filterValue === 'No') return row.getValue(columnId) === false;
+          return true;
+        },
+        meta: {
+          filterComponent: SelectFilter,
+          filterOptions: ['Yes', 'No'],
         },
       }),
     ],

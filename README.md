@@ -9,6 +9,7 @@ This app displays videos from [UN Web TV](https://webtv.un.org/en/schedule) in a
 ### Current Features
 
 - **Embedded Video Pages**: Click any video to watch directly in the app with Kaltura player
+- **AI-Powered Transcription**: Generate text transcripts of any video using ElevenLabs API with speaker diarization
 - **Enhanced Metadata Extraction**: Automatically extracts structured data from video titles
 - **Real-time Status Tracking**: Color-coded badges showing if events are 🔴 Live, Scheduled, or Finished
 - **Smart Sorting**: Sorts by status first (Live → Scheduled → Finished), then by date/time
@@ -57,6 +58,12 @@ First, install dependencies:
 npm install
 ```
 
+Create a `.env.local` file in the project root with your API key:
+
+```bash
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+```
+
 Run the development server:
 
 ```bash
@@ -69,13 +76,17 @@ Open [http://localhost:3000](http://localhost:3000) to view the app.
 
 - `app/page.tsx` - Main page (server component, fetches data)
 - `app/video/[id]/page.tsx` - Individual video pages with embedded Kaltura player
+- `app/api/transcribe/route.ts` - API endpoint for video transcription
 - `components/video-table.tsx` - Filterable table (client component with TanStack Table)
+- `components/transcription-panel.tsx` - Client component for generating and displaying transcripts
 - `lib/un-api.ts` - Scraping logic with enhanced metadata extraction
 - `app/globals.css` - Tailwind CSS v4 styling with UN color palette
 
 ## Tech Stack
 
-- **Framework**: Next.js v15.4 with Server Components
+- **Framework**: Next.js v15.4 with Server Components & API Routes
 - **Styling**: Tailwind CSS v4
 - **Table**: TanStack Table v8 (headless, sortable, filterable)
 - **UI Components**: shadcn/ui base
+- **Transcription**: ElevenLabs API for speech-to-text with speaker diarization
+- **Video Player**: Kaltura embedded player

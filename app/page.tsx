@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { getScheduleVideos } from '@/lib/un-api';
 import { VideoTable } from '@/components/video-table';
 import Image from 'next/image';
@@ -18,14 +19,16 @@ export default async function Home() {
 
                 <header className="mb-8">
                     <h1 className="text-3xl font-semibold mb-2">
-                        UN Web TV Schedule
+                        UN Web TV 2.0
                     </h1>
                     <p className="text-muted-foreground">
-                        {videos.length} videos from tomorrow to the past 14 days with live status tracking
+                        {videos.length} videos from the past 14 days
                     </p>
                 </header>
 
-                <VideoTable videos={videos} />
+                <Suspense fallback={<div>Loading...</div>}>
+                    <VideoTable videos={videos} />
+                </Suspense>
             </div>
         </main>
     );

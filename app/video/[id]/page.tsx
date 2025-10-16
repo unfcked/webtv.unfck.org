@@ -2,6 +2,7 @@ import { getScheduleVideos } from '@/lib/un-api';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import { VideoPageClient } from '@/components/video-page-client';
 
 function extractKalturaId(assetId: string): string | null {
   // Try different patterns to extract Kaltura entry ID
@@ -40,8 +41,9 @@ export async function generateStaticParams() {
   return videos.map(video => ({ id: encodeURIComponent(video.id) }));
 }
 
-export default async function VideoPage({ params }: { params: { id: string } }) {
-  const decodedId = decodeURIComponent(params.id);
+export default async function VideoPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const decodedId = decodeURIComponent(id);
   const videos = await getScheduleVideos(14);
   const video = videos.find(v => v.id === decodedId);
 
@@ -75,58 +77,10 @@ export default async function VideoPage({ params }: { params: { id: string } }) 
     );
   }
 
-  const embedUrl = `https://cdnapisec.kaltura.com/p/2503451/embedPlaykitJs/uiconf_id/49754663?iframeembed=true&entry_id=${kalturaId}&config[playback]={"audioLanguage":"en"}&config[ui]={"locale":"en"}`;
-
   return (
     <main className="min-h-screen bg-background px-4 sm:px-6">
       <div className="max-w-5xl mx-auto py-8">
-        <Link href="/" className="inline-flex items-center gap-2 mb-6 hover:opacity-80">
-          <Image
-            src="/images/UN Logo_Horizontal_English/Colour/UN Logo_Horizontal_Colour_English.svg"
-            alt="UN Logo"
-            width={150}
-            height={30}
-            className="h-8 w-auto"
-          />
-        </Link>
-
-        <div className="mb-4">
-          <Link href="/" className="text-primary hover:underline text-sm">
-            ← Back to Schedule
-          </Link>
-        </div>
-
-        <div className="mb-6">
-          <h1 className="text-3xl font-semibold mb-2">{video.cleanTitle}</h1>
-          <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-            {video.body && <span>{video.body}</span>}
-            {video.body && (video.category || video.duration) && <span>•</span>}
-            {video.category && <span>{video.category}</span>}
-            {video.category && video.duration && <span>•</span>}
-            <span>{video.duration}</span>
-          </div>
-        </div>
-
-        <div className="aspect-video bg-black rounded-lg overflow-hidden">
-          <iframe
-            src={embedUrl}
-            className="w-full h-full"
-            allowFullScreen
-            allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
-            frameBorder="0"
-          />
-        </div>
-
-        <div className="mt-6">
-          <a
-            href={video.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline text-sm"
-          >
-            View on UN Web TV →
-          </a>
-        </div>
+        <VideoPageClient kalturaId={kalturaId} video={video} />
       </div>
     </main>
   );
