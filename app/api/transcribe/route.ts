@@ -67,9 +67,12 @@ export async function POST(request: NextRequest) {
 
       if (listResponse.ok) {
         const listData = await listResponse.json();
-        const existing = listData.transcripts?.find((t: { audio_url: string; status: string; id: string }) => 
+        const matches = listData.transcripts?.filter((t: { audio_url: string; status: string; created: string }) => 
           t.audio_url === downloadUrl && t.status === 'completed'
         );
+        const existing = matches?.sort((a: { created: string }, b: { created: string }) => 
+          b.created.localeCompare(a.created)
+        )[0];
 
         if (existing) {
           const detailResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${existing.id}`, {
