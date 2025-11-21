@@ -90,14 +90,16 @@ export async function getTranscript(
   if (startTime !== undefined && endTime !== undefined) {
     query = `
       SELECT * FROM transcripts 
-      WHERE entry_id = ? AND start_time = ? AND end_time = ?
+      WHERE entry_id = ? AND start_time = ? AND end_time = ? AND status = 'completed'
+      ORDER BY updated_at DESC
       LIMIT 1
     `;
     args.push(startTime, endTime);
   } else {
     query = `
       SELECT * FROM transcripts 
-      WHERE entry_id = ? AND start_time IS NULL AND end_time IS NULL
+      WHERE entry_id = ? AND start_time IS NULL AND end_time IS NULL AND status = 'completed'
+      ORDER BY updated_at DESC
       LIMIT 1
     `;
   }
@@ -125,7 +127,7 @@ export async function getAllTranscriptsForEntry(entryId: string): Promise<Transc
   await ensureInitialized();
   
   const result = await client.execute({
-    sql: 'SELECT * FROM transcripts WHERE entry_id = ? ORDER BY start_time ASC',
+    sql: 'SELECT * FROM transcripts WHERE entry_id = ? AND status = \'completed\' ORDER BY start_time ASC',
     args: [entryId]
   });
   
