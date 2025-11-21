@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { SpeakerInfo, SpeakerMapping } from '@/lib/speakers';
+import type { SpeakerMapping } from '@/lib/speakers';
 import type { Video, VideoMetadata } from '@/lib/un-api';
 import { getCountryName } from '@/lib/country-lookup';
 import { ChevronDown } from 'lucide-react';
@@ -39,7 +39,7 @@ interface SpeakerSegment {
 }
 
 
-export function TranscriptionPanel({ kalturaId, player, video, metadata }: TranscriptionPanelProps) {
+export function TranscriptionPanel({ kalturaId, player, video }: TranscriptionPanelProps) {
   const [paragraphs, setParagraphs] = useState<Paragraph[] | null>(null);
   const [segments, setSegments] = useState<SpeakerSegment[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -210,6 +210,28 @@ export function TranscriptionPanel({ kalturaId, player, video, metadata }: Trans
     return paragraphs;
   }, []);
 
+  const loadCountryNames = useCallback(async (mapping: SpeakerMapping) => {
+    const names = new Map<string, string>();
+    
+    // Collect all ISO3 codes
+    const iso3Codes = new Set<string>();
+    Object.values(mapping).forEach(info => {
+      if (info.affiliation && info.affiliation.length === 3) {
+        iso3Codes.add(info.affiliation);
+      }
+    });
+    
+    // Load country names
+    for (const code of iso3Codes) {
+      const name = await getCountryName(code);
+      if (name) {
+        names.set(code, name);
+      }
+    }
+    
+    setCountryNames(names);
+  }, []);
+
   const identifySpeakers = useCallback(async (paragraphsData: Paragraph[], transcriptId?: string) => {
     setIdentifyingSpeakers(true);
     try {
@@ -232,29 +254,7 @@ export function TranscriptionPanel({ kalturaId, player, video, metadata }: Trans
     } finally {
       setIdentifyingSpeakers(false);
     }
-  }, []);
-
-  const loadCountryNames = useCallback(async (mapping: SpeakerMapping) => {
-    const names = new Map<string, string>();
-    
-    // Collect all ISO3 codes
-    const iso3Codes = new Set<string>();
-    Object.values(mapping).forEach(info => {
-      if (info.affiliation && info.affiliation.length === 3) {
-        iso3Codes.add(info.affiliation);
-      }
-    });
-    
-    // Load country names
-    for (const code of iso3Codes) {
-      const name = await getCountryName(code);
-      if (name) {
-        names.set(code, name);
-      }
-    }
-    
-    setCountryNames(names);
-  }, []);
+  }, [loadCountryNames]);
 
   // Group paragraphs by OpenAI-identified speaker (using paragraph-level mapping)
   const groupParagraphsBySpeaker = useCallback((paragraphsData: Paragraph[], mappings: SpeakerMapping): SpeakerSegment[] => {
@@ -638,7 +638,7 @@ export function TranscriptionPanel({ kalturaId, player, video, metadata }: Trans
     };
 
     checkCache();
-  }, [kalturaId, formatParagraphs]);
+  }, [kalturaId, formatParagraphs, loadCountryNames]);
 
   // Listen to player time updates with high frequency polling
   useEffect(() => {

@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getScheduleVideos, getVideoMetadata } from '@/lib/un-api';
 import { getTranscriptId } from '@/lib/transcript-cache';
-import { getSpeakerMapping } from '@/lib/speakers';
+import { getSpeakerMapping, SpeakerInfo } from '@/lib/speakers';
 import { getCountryName } from '@/lib/country-lookup';
+
+interface AssemblyAIParagraph {
+  text: string;
+  start: number;
+  end: number;
+  words: Array<{
+    text: string;
+    start: number;
+    end: number;
+    confidence: number;
+  }>;
+}
 
 function extractKalturaId(assetId: string): string | null {
   let match = assetId.match(/\(([^)]+)\)/);
@@ -163,7 +175,7 @@ export async function GET(
     // Load country names for affiliations
     const countryNames = new Map<string, string>();
     const iso3Codes = new Set<string>();
-    Object.values(speakerMappings).forEach((info: any) => {
+    Object.values(speakerMappings).forEach((info: SpeakerInfo) => {
       if (info.affiliation && info.affiliation.length === 3) {
         iso3Codes.add(info.affiliation);
       }
@@ -177,7 +189,7 @@ export async function GET(
     }
 
     // Build transcript with speaker info
-    const transcriptParagraphs = paragraphs.map((para: any, index: number) => {
+    const transcriptParagraphs = paragraphs.map((para: AssemblyAIParagraph, index: number) => {
       const info = speakerMappings[index.toString()];
       
       return {
@@ -192,7 +204,7 @@ export async function GET(
           group: info?.group || null,
           function: info?.function || null,
         },
-        words: para.words.map((word: any) => ({
+        words: para.words.map(word => ({
           text: word.text,
           start: word.start / 1000,
           end: word.end / 1000,
