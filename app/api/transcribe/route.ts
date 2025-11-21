@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
               paragraphs: paragraphsData?.paragraphs || null,
               language: detail.language_code,
               cached: true,
+              transcriptId: cachedTranscriptId,
               segmentStart: isSegmentRequest ? startTime : undefined,
               segmentEnd: isSegmentRequest ? endTime : undefined,
             });

@@ -41,6 +41,18 @@ export function VideoPageClient({ kalturaId, video, metadata }: VideoPageClientP
           <div className="mb-3">
             <h1 className="text-xl font-semibold mb-2">{video.cleanTitle}</h1>
             <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mb-2">
+              {video.date && (
+                <>
+                  <span>{new Date(video.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                  {video.scheduledTime && <span>•</span>}
+                </>
+              )}
+              {video.scheduledTime && (
+                <>
+                  <span>{new Date(video.scheduledTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}</span>
+                  {(video.body || video.category || video.duration) && <span>•</span>}
+                </>
+              )}
               {video.body && <span>{video.body}</span>}
               {video.body && (video.category || video.duration) && <span>•</span>}
               {video.category && <span>{video.category}</span>}

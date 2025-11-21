@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import type { SpeakerInfo, SpeakerMapping } from '@/lib/speakers';
+import { getCountryName } from '@/lib/country-lookup';
 
 interface TranscriptionPanelProps {
   kalturaId: string;
@@ -30,6 +32,7 @@ interface SpeakerSegment {
   timestamp: number;
 }
 
+
 export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProps) {
   const [segments, setSegments] = useState<SpeakerSegment[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -40,6 +43,9 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
   const [activeParagraphIndex, setActiveParagraphIndex] = useState<number>(-1);
   const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
+  const [speakerMappings, setSpeakerMappings] = useState<SpeakerMapping>({});
+  const [identifyingSpeakers, setIdentifyingSpeakers] = useState(false);
+  const [countryNames, setCountryNames] = useState<Map<string, string>>(new Map());
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]);
   const paragraphRefs = useRef<Map<string, HTMLParagraphElement>>(new Map());
   const wordRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
@@ -59,6 +65,44 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
   const cleanSpeakerId = (speakerId: string): string => {
     // AssemblyAI uses single letters (A, B, C), just return as-is
     return speakerId.toUpperCase();
+  };
+
+  const getSpeakerName = (speakerId: string): string => {
+    const cleanId = cleanSpeakerId(speakerId);
+    const info = speakerMappings[cleanId];
+    
+    if (!info) {
+      return `Speaker ${cleanId}`;
+    }
+    
+    const parts: string[] = [];
+    
+    // Affiliation first (with country name if available)
+    if (info.affiliation) {
+      const countryName = countryNames.get(info.affiliation);
+      if (countryName) {
+        parts.push(`[${countryName}]`);
+      } else {
+        parts.push(`[${info.affiliation}]`);
+      }
+    }
+    
+    // Group second
+    if (info.group) {
+      parts.push(`{${info.group}}`);
+    }
+    
+    // Function third
+    if (info.function) {
+      parts.push(info.function);
+    }
+    
+    // Name last (will be styled differently)
+    if (info.name) {
+      parts.push(`— ${info.name}`);
+    }
+    
+    return parts.length > 0 ? parts.join(' ') : `Speaker ${cleanId}`;
   };
 
   const getSpeakerColor = (speakerId: string): string => {
@@ -135,6 +179,52 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
     }
 
     return paragraphs;
+  }, []);
+
+  const identifySpeakers = useCallback(async (paragraphsData: Paragraph[], transcriptId?: string) => {
+    setIdentifyingSpeakers(true);
+    try {
+      const response = await fetch('/api/identify-speakers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paragraphs: paragraphsData, transcriptId }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.mapping) {
+          setSpeakerMappings(data.mapping);
+          // Load country names for affiliations
+          await loadCountryNames(data.mapping);
+        }
+      }
+    } catch (err) {
+      console.error('Speaker identification failed:', err);
+    } finally {
+      setIdentifyingSpeakers(false);
+    }
+  }, []);
+
+  const loadCountryNames = useCallback(async (mapping: SpeakerMapping) => {
+    const names = new Map<string, string>();
+    
+    // Collect all ISO3 codes
+    const iso3Codes = new Set<string>();
+    Object.values(mapping).forEach(info => {
+      if (info.affiliation && info.affiliation.length === 3) {
+        iso3Codes.add(info.affiliation);
+      }
+    });
+    
+    // Load country names
+    for (const code of iso3Codes) {
+      const name = await getCountryName(code);
+      if (name) {
+        names.set(code, name);
+      }
+    }
+    
+    setCountryNames(names);
   }, []);
 
   const formatParagraphs = useCallback((paragraphsData: Paragraph[]): SpeakerSegment[] => {
@@ -232,6 +322,11 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
       if (data.paragraphs && data.paragraphs.length > 0) {
         setSegments(formatParagraphs(data.paragraphs));
         setCached(data.cached || false);
+        
+        // Identify speakers after setting segments
+        if (!data.cached) {
+          identifySpeakers(data.paragraphs, data.transcriptId);
+        }
       } 
       // If new transcript submitted, poll for completion
       else if (data.transcriptId) {
@@ -260,6 +355,9 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
             console.log('Transcription completed');
             setSegments(formatParagraphs(pollData.paragraphs));
             setCached(false);
+            
+            // Identify speakers after transcription completes
+            identifySpeakers(pollData.paragraphs, pollData.transcriptId);
             break;
           } else if (pollData.status === 'error') {
             throw new Error(pollData.error || 'Transcription failed');
@@ -326,6 +424,26 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
           if (data.cached && data.paragraphs && data.paragraphs.length > 0) {
             setSegments(formatParagraphs(data.paragraphs));
             setCached(true);
+            
+            // Load speaker mappings if available
+            if (data.transcriptId) {
+              try {
+                const speakerResponse = await fetch('/api/get-speaker-mapping', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ transcriptId: data.transcriptId }),
+                });
+                if (speakerResponse.ok) {
+                  const speakerData = await speakerResponse.json();
+                  if (speakerData.mapping) {
+                    setSpeakerMappings(speakerData.mapping);
+                    await loadCountryNames(speakerData.mapping);
+                  }
+                }
+              } catch (err) {
+                console.log('Failed to load speaker mappings:', err);
+              }
+            }
           }
         }
       } catch (err) {
@@ -493,6 +611,13 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
         </div>
       )}
       
+      {identifyingSpeakers && (
+        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          <span>Identifying speakers...</span>
+        </div>
+      )}
+      
       {segments && (
         <div className="space-y-3">
           {cached && (
@@ -509,8 +634,8 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
                 ref={(el) => { segmentRefs.current[segmentIndex] = el; }}
               >
                 <div className="flex items-center gap-2">
-                  <div className={`text-sm font-semibold uppercase tracking-wide ${getSpeakerColor(segment.speaker)}`}>
-                    Speaker {cleanSpeakerId(segment.speaker)}
+                  <div className={`text-sm font-semibold tracking-wide ${getSpeakerColor(segment.speaker)}`}>
+                    {getSpeakerName(segment.speaker)}
                   </div>
                   <button
                     onClick={() => seekToTimestamp(segment.timestamp)}

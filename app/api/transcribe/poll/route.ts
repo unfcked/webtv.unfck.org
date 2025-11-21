@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
         words: transcript.words || [],
         paragraphs: paragraphsData?.paragraphs || null,
         language: transcript.language_code,
+        transcriptId,
       });
     } else if (transcript.status === 'error') {
       return NextResponse.json({
