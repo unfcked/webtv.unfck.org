@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllTranscriptsForEntry } from '@/lib/transcript-cache';
 
-interface Segment {
-  start: number;
-  end: number;
-  transcriptId: string;
-}
-
 interface Gap {
   start: number;
   end: number;
+}
+
+interface Word {
+  text: string;
+  speaker?: string | null;
+  start: number;
+  end: number;
+}
+
+interface Paragraph {
+  text: string;
+  start: number;
+  end: number;
+  words: Word[];
 }
 
 export async function POST(request: NextRequest) {
@@ -66,17 +74,6 @@ export async function POST(request: NextRequest) {
     const segmentsWithContent = await Promise.all(
       existingSegments.map(async (seg) => {
         try {
-          const transcriptRes = await fetch(`https://api.assemblyai.com/v2/transcript/${seg.transcriptId}`, {
-            headers: { 'Authorization': process.env.ASSEMBLYAI_API_KEY! },
-          });
-          
-          if (!transcriptRes.ok) {
-            console.error(`Failed to fetch transcript ${seg.transcriptId}`);
-            return null;
-          }
-          
-          const transcript = await transcriptRes.json();
-          
           // Fetch paragraphs
           const paragraphsRes = await fetch(`https://api.assemblyai.com/v2/transcript/${seg.transcriptId}/paragraphs`, {
             headers: { 'Authorization': process.env.ASSEMBLYAI_API_KEY! },
@@ -90,11 +87,11 @@ export async function POST(request: NextRequest) {
           const paragraphsData = await paragraphsRes.json();
           
           // Adjust timestamps to video time
-          return paragraphsData.paragraphs?.map((para: any) => ({
+          return paragraphsData.paragraphs?.map((para: Paragraph) => ({
             ...para,
             start: (para.start / 1000) + seg.start,
             end: (para.end / 1000) + seg.start,
-            words: para.words?.map((w: any) => ({
+            words: para.words?.map((w: Word) => ({
               ...w,
               start: (w.start / 1000) + seg.start,
               end: (w.end / 1000) + seg.start,
@@ -108,10 +105,10 @@ export async function POST(request: NextRequest) {
     );
     
     // Flatten and filter out nulls
-    const existingParagraphs = segmentsWithContent
+    const existingParagraphs = (segmentsWithContent
       .filter(Boolean)
-      .flat()
-      .sort((a: any, b: any) => a.start - b.start);
+      .flat() as Paragraph[])
+      .sort((a, b) => a.start - b.start);
 
     // For finished videos, check if we have a complete transcript
     if (isComplete) {

@@ -227,10 +227,51 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
       }
       
       const data = await response.json();
+      
+      // If cached/completed transcript with paragraphs
       if (data.paragraphs && data.paragraphs.length > 0) {
         setSegments(formatParagraphs(data.paragraphs));
+        setCached(data.cached || false);
+      } 
+      // If new transcript submitted, poll for completion
+      else if (data.transcriptId) {
+        console.log('Polling for transcript:', data.transcriptId);
+        
+        let pollCount = 0;
+        const maxPolls = 200; // Max ~10 minutes (3s * 200)
+        
+        while (pollCount < maxPolls) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          pollCount++;
+          
+          const pollResponse = await fetch('/api/transcribe/poll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcriptId: data.transcriptId }),
+          });
+          
+          if (!pollResponse.ok) {
+            throw new Error('Failed to poll transcript status');
+          }
+          
+          const pollData = await pollResponse.json();
+          
+          if (pollData.status === 'completed' && pollData.paragraphs) {
+            console.log('Transcription completed');
+            setSegments(formatParagraphs(pollData.paragraphs));
+            setCached(false);
+            break;
+          } else if (pollData.status === 'error') {
+            throw new Error(pollData.error || 'Transcription failed');
+          }
+          
+          // Still processing, continue polling
+        }
+        
+        if (pollCount >= maxPolls) {
+          throw new Error('Transcription timeout');
+        }
       }
-      setCached(data.cached || false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to transcribe');
     } finally {
@@ -239,7 +280,6 @@ export function TranscriptionPanel({ kalturaId, player }: TranscriptionPanelProp
   };
 
   const handleRetranscribe = async () => {
-    setSegments(null);
     setCached(false);
     await handleTranscribe(true);
   };

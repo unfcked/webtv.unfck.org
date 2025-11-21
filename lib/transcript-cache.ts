@@ -11,7 +11,7 @@ interface TranscriptCache {
 async function ensureCacheDir() {
   try {
     await mkdir(CACHE_DIR, { recursive: true });
-  } catch (e) {
+  } catch {
     // Directory already exists
   }
 }
@@ -20,7 +20,7 @@ async function readCache(): Promise<TranscriptCache> {
   try {
     const data = await readFile(CACHE_FILE, 'utf-8');
     return JSON.parse(data);
-  } catch (e) {
+  } catch {
     return {};
   }
 }

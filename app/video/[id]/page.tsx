@@ -35,11 +35,6 @@ function extractKalturaId(assetId: string): string | null {
   return null;
 }
 
-export async function generateStaticParams() {
-  const videos = await getScheduleVideos(90);
-  return videos.map(video => ({ id: encodeURIComponent(video.id) }));
-}
-
 export default async function VideoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const decodedId = decodeURIComponent(id);

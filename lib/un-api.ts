@@ -224,7 +224,7 @@ async function fetchVideosForDate(date: string): Promise<Video[]> {
   const videoBlockPattern = /<h6[^>]*class="text-primary"[^>]*>([^<]+)<\/h6>[\s\S]*?<h4[^>]*>[\s\S]*?href="\/en\/asset\/([^"]+)"[^>]*>[\s\S]*?<div class="field__item">([^<]+)<\/div>/g;
   
   for (const match of html.matchAll(videoBlockPattern)) {
-    const [fullMatch, category, assetId, title] = match;
+    const [, category, assetId, title] = match;
     
     if (seen.has(assetId)) continue;
     seen.add(assetId);

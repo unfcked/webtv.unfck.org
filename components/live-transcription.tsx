@@ -39,7 +39,7 @@ interface Gap {
   end: number;
 }
 
-export function LiveTranscription({ player, isLive, kalturaId }: LiveTranscriptionProps) {
+export function LiveTranscription({ player, kalturaId }: LiveTranscriptionProps) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [currentTranscript, setCurrentTranscript] = useState('');
@@ -458,35 +458,82 @@ export function LiveTranscription({ player, isLive, kalturaId }: LiveTranscripti
 
       {(isStreaming || batchSegments.length > 0) && (
         <div className="space-y-3">
-          {/* Display batch segments */}
-          {batchSegments.map((para, i) => (
-            <div key={`batch-${i}`} className="p-3 bg-muted/70 rounded">
-              <div className="text-xs text-muted-foreground mb-1 flex items-center gap-2">
-                <span>[{Math.floor(para.start)}s]</span>
-                <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">Previous</span>
+          {/* Display batch segments with clickable words */}
+          {batchSegments.map((para, i) => {
+            const paraStart = para.start;
+            const hasWords = para.words && para.words.length > 0;
+            
+            return (
+              <div key={`batch-${i}`} className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => player?.currentTime && (player.currentTime = paraStart)}
+                    className="text-xs text-muted-foreground hover:text-primary hover:underline cursor-pointer transition-colors"
+                    title="Jump to this timestamp"
+                  >
+                    [{Math.floor(paraStart)}s]
+                  </button>
+                  <span className="text-[10px] bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
+                    Previous
+                  </span>
+                </div>
+                <div className="p-4 rounded-lg bg-muted/50 border-2 border-transparent">
+                  <div className="text-sm leading-relaxed">
+                    {hasWords ? (
+                      <p>
+                        {para.words.map((word, wordIndex) => (
+                          <span
+                            key={wordIndex}
+                            onClick={() => player?.currentTime && (player.currentTime = word.start)}
+                            className="cursor-pointer hover:opacity-70 transition-opacity"
+                          >
+                            {word.text}{' '}
+                          </span>
+                        ))}
+                      </p>
+                    ) : (
+                      <p>{para.text}</p>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="text-sm">{para.text}</div>
-            </div>
-          ))}
+            );
+          })}
           
-          {/* Display live streaming turns */}
+          {/* Display live streaming turns (simpler, no word-level data) */}
           {turns.map((turn, i) => (
-            <div key={`live-${i}`} className="p-3 bg-muted rounded">
-              <div className="text-xs text-muted-foreground mb-1 flex items-center gap-2">
-                {turn.timestamp !== undefined && <span>[{Math.floor(turn.timestamp)}s]</span>}
-                <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Live</span>
+            <div key={`live-${i}`} className="space-y-2">
+              <div className="flex items-center gap-2">
+                {turn.timestamp !== undefined && (
+                  <button
+                    onClick={() => player?.currentTime && (player.currentTime = turn.timestamp!)}
+                    className="text-xs text-muted-foreground hover:text-primary hover:underline cursor-pointer transition-colors"
+                    title="Jump to this timestamp"
+                  >
+                    [{Math.floor(turn.timestamp)}s]
+                  </button>
+                )}
+                <span className="text-[10px] bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">
+                  Live
+                </span>
               </div>
-              <div className="text-sm">{turn.transcript}</div>
+              <div className="p-4 rounded-lg bg-muted/50 border-2 border-transparent">
+                <div className="text-sm leading-relaxed">{turn.transcript}</div>
+              </div>
             </div>
           ))}
           
           {/* Display current streaming transcript */}
           {currentTranscript && (
-            <div className="p-3 bg-muted/50 rounded border border-primary/30">
-              <div className="text-xs text-muted-foreground mb-1 flex items-center gap-2">
-                <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Live</span>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">
+                  Live
+                </span>
               </div>
-              <div className="text-sm text-muted-foreground italic">{currentTranscript}</div>
+              <div className="p-4 rounded-lg bg-muted/30 border-2 border-primary/30">
+                <div className="text-sm leading-relaxed text-muted-foreground italic">{currentTranscript}</div>
+              </div>
             </div>
           )}
         </div>

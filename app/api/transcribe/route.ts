@@ -3,7 +3,7 @@ import { getTranscriptId, setTranscriptId } from '@/lib/transcript-cache';
 
 export async function POST(request: NextRequest) {
   try {
-    const { kalturaId, checkOnly, force, startTime, endTime, totalDuration } = await request.json();
+    const { kalturaId, checkOnly, force, startTime, endTime } = await request.json();
     
     if (!kalturaId) {
       return NextResponse.json({ error: 'Kaltura ID is required' }, { status: 400 });
