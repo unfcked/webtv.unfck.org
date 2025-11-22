@@ -55,10 +55,13 @@ export async function POST(request: NextRequest) {
 
     // Find English audio track
     const flavors = apiData[2]?.objects || [];
-    const englishFlavor = flavors.find((f: { language: string; tags: string }) => 
-      f.language === 'English' && f.tags?.includes('audio_only')
+    const englishCandidates = flavors.filter((f: { language?: string; tags?: string }) => 
+      f.language?.toLowerCase() === 'english' && f.tags?.includes('audio_only')
     );
-    const flavorParamId = englishFlavor?.flavorParamsId || 100; // Fallback to 100
+    const preferredFlavor = englishCandidates.find((f: { status?: number; isDefault?: boolean }) => f.status === 2 && f.isDefault)
+      || englishCandidates.find((f: { status?: number }) => f.status === 2)
+      || englishCandidates[0];
+    const flavorParamId = preferredFlavor?.flavorParamsId || 100; // Fallback to 100
     
     const baseDownloadUrl = `https://cdnapisec.kaltura.com/p/2503451/sp/0/playManifest/entryId/${entryId}/format/download/protocol/https/flavorParamIds/${flavorParamId}`;
     

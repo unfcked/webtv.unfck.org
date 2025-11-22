@@ -26,21 +26,35 @@ export async function POST(request: NextRequest) {
     // Parse manifest to get the audio stream URL
     const lines = manifestText.split('\n');
     let audioStreamUrl = '';
+
+    const audioLines = lines
+      .map(line => line.trim())
+      .filter(line => line.startsWith('#EXT-X-MEDIA:TYPE=AUDIO'));
     
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.startsWith('#EXT-X-MEDIA:TYPE=AUDIO')) {
-        // Extract URI from the line
-        const uriMatch = line.match(/URI="([^"]+)"/);
-        if (uriMatch) {
-          audioStreamUrl = uriMatch[1];
+    if (audioLines.length) {
+      const parsed = audioLines.map(line => {
+        const attrs = Object.fromEntries(
+          Array.from(line.matchAll(/([A-Z-]+)="([^"]+)"/g)).map(match => [match[1].toLowerCase(), match[2]])
+        );
+        return {
+          uri: attrs.uri,
+          lang: attrs.language?.toLowerCase(),
+          isDefault: /DEFAULT=YES/.test(line),
+        };
+      });
+      const preferred = parsed.find(item => item.lang === 'en') 
+        || parsed.find(item => item.isDefault) 
+        || parsed[0];
+      audioStreamUrl = preferred?.uri || '';
+    }
+    
+    if (!audioStreamUrl) {
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (line && !line.startsWith('#') && line.includes('.m3u8')) {
+          audioStreamUrl = line;
           break;
         }
-      }
-      // Fallback: if it's a direct stream URL
-      if (line && !line.startsWith('#') && line.includes('.m3u8')) {
-        audioStreamUrl = line;
-        break;
       }
     }
     
