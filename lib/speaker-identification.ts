@@ -34,7 +34,6 @@ const ResegmentationResult = z.object({
 const API_VERSION = '2025-01-01-preview';
 
 const IDENTIFICATION_RULES = `IDENTIFICATION RULES:
-- Look for "Thank you [name]" to identify when a new speaker starts (thanking the previous one)
 - Use AssemblyAI labels as HINTS for speaker changes (label change often = new speaker), but verify with text
 - AssemblyAI may incorrectly group different speakers under same label, or split one speaker across labels
 - Extract both personal names AND official functions when available
@@ -160,53 +159,49 @@ This transcript was created by automatic speech recognition (AssemblyAI), which 
 In an initial identification pass, we detected that the CURRENT paragraph likely contains speech from multiple different speakers mixed together (e.g., the last few sentences of one speaker followed by the first sentences of the next speaker).
 
 YOUR TASK:
-Split the CURRENT paragraph at the actual speaker change boundaries. For each resulting segment, identify who is speaking.
+Determine WHO IS SPEAKING each part of the CURRENT paragraph. If different people speak different parts, split at the speaker change boundaries.
 
-The paragraph may contain:
-- 2 speakers (most common: end of speaker A + beginning of speaker B)
-- 3 or more speakers (e.g., Chair closes, introduces next speaker, who begins - all in one paragraph)
-- Multiple brief interjections or procedural exchanges
+You are provided context:
+- BEFORE-N paragraphs: Who was speaking before, providing conversation flow
+- CURRENT paragraph: The paragraph to evaluate (may contain multiple speakers)
+- AFTER+N paragraphs: Who speaks next, helping identify transitions
 
-You are provided with:
-- BEFORE-N paragraphs: Several paragraphs before the current one (for broader context about conversation flow)
-- CURRENT paragraph: The paragraph that needs evaluation and potential splitting
-- AFTER+N paragraphs: Several paragraphs after the current one (for context about who speaks next)
+FUNDAMENTAL QUESTION:
+Is the entire CURRENT paragraph spoken by one person, or does it contain words from multiple different speakers?
 
-Use this extended context to better understand the conversation flow and speaker transitions.
+Think semantically, not by keyword patterns:
+- WHO is saying the opening words?
+- WHO is saying the closing words?
+- Does the speaker change in the middle?
+- Use BEFORE/AFTER context to understand who should be speaking when
 
-CRITICAL REQUIREMENTS:
+DECISION PROCESS:
 
-1. FIRST, determine if this paragraph ACTUALLY needs splitting:
-   - Set should_split = true ONLY if you find genuine speaker transitions
-   - Set should_split = false if the entire paragraph is one continuous speaker
-   - Be CAUTIOUS about false positives
+1. Analyze the content semantically:
+   - If one person speaks throughout → should_split = false
+   - If multiple people speak different parts → should_split = true
+   - Look for actual speaker changes, not just topic shifts within one speech
 
-2. Common FALSE POSITIVES to avoid:
-   - "Thank [word]" expressions: "Thank God", "Thank goodness", "Thank heavens" are NOT speaker transitions
-   - Only "Thank you" followed by period/comma at natural boundaries indicates transitions
-   - Generic acknowledgments within a speech are not transitions
-   - Rhetorical questions or quotes are not transitions
+2. Common scenarios where splitting IS needed:
+   - Previous speaker finishes, then chair/moderator speaks
+   - Chair hands off floor, and next speaker begins
+   - Question from one person, answer from another
+   - Brief back-and-forth exchanges
 
-3. TRUE POSITIVES - genuine speaker changes:
-   - Speaker A closes → "Thank you." → Chair takes over: "I thank the representative..."
-   - Chair gives floor → New speaker begins: "...to Country X." → "Thank you, Madam President..."
-   - Q&A exchanges with clear back-and-forth between different people
-   - Multiple speakers in rapid succession (rare but happens in informal settings)
+3. Common scenarios where splitting is NOT needed:
+   - Opening formalities as part of one speech: "Thank you, Chair. Today I will..."
+   - One person's continuous remarks, however long
+   - Rhetorical devices, quotes, or references within one speech
 
-4. If should_split = true, then split at EACH speaker change boundary:
-   - Return as many segments as there are different speakers
-   - Each segment contains only one speaker's exact words
-   - Copy EXACT text verbatim from the paragraph
-   - Identify the speaker of each segment
+4. If should_split = true:
+   - Split at EACH speaker boundary
+   - Return exact text for each segment (one segment per speaker)
+   - Identify who is speaking each segment
+   - Text integrity: concatenated segments MUST equal original exactly
 
-5. Text integrity:
-   - When concatenated, segments' text MUST reproduce the original exactly
-   - Do NOT add, remove, rephrase, or modify any words
-   - Include all punctuation and spacing exactly as it appears
-
-6. Set confidence and reason:
-   - confidence: "high" if very clear transitions, "medium" if somewhat ambiguous, "low" if uncertain
-   - reason: Brief explanation of why you're splitting or not splitting
+5. Set confidence and reason:
+   - confidence: "high" if clear speaker changes, "medium" if somewhat ambiguous, "low" if uncertain
+   - reason: Brief explanation focused on WHO is speaking and why you're splitting/not splitting
 
 ${IDENTIFICATION_RULES}
 
@@ -214,16 +209,16 @@ ${COMMON_ABBREVIATIONS}
 
 ${SCHEMA_DEFINITIONS}
 
-should_split: Boolean indicating whether this paragraph truly contains multiple speakers and should be split. Set to false if it's actually one continuous speaker (even if flagged for review).
+should_split: Boolean - Does this paragraph contain words spoken by multiple different people? True if different speakers, false if one continuous speaker throughout.
 
-confidence: Your confidence level in the splitting decision:
-- "high": Very clear speaker transitions with obvious boundaries
-- "medium": Likely transitions but some ambiguity
-- "low": Uncertain, possibly a false positive from detection
+confidence: Your confidence in determining who is speaking:
+- "high": Very clear who speaks each part
+- "medium": Reasonably clear but some ambiguity
+- "low": Uncertain about speaker boundaries
 
-reason: Brief explanation (1-2 sentences) of why you're splitting or not splitting. For example: "Clear transition from speaker closing to chair giving floor to next speaker" or "Only one speaker throughout, 'Thank God' is not a transition".
+reason: Brief explanation (1-2 sentences) focusing on WHO is speaking. Examples: "Delegate finishes remarks, then chair responds" or "One continuous speech by the representative, opening courtesy is part of their remarks".
 
-text: EXACT text of the segment, copied character-by-character from the paragraph. Every word, comma, period, space must be preserved exactly. Do NOT include any speaker labels, prefixes like "(Speaker: ...)", or other metadata - ONLY the actual spoken words from the paragraph.
+text: EXACT text of each segment, copied character-by-character from the CURRENT paragraph. Every word, comma, period, space must be preserved exactly. Do NOT include speaker labels, prefixes like "(Speaker: ...)", or other metadata - ONLY the actual spoken words.
 `,
       },
       {
@@ -374,31 +369,33 @@ TASK:
 - Process EVERY paragraph from [0] to [last]. Never stop early.
 
 MIXED SPEAKER DETECTION:
-- Set has_multiple_speakers to true if a paragraph LIKELY contains speech from multiple people
-- Automatic transcription often groups speaker transitions incorrectly
-- Flag TRUE if these patterns are present:
-  
-  PRIMARY INDICATORS (high probability of mixed speakers):
-  - "Thank you." followed by "I thank [name/title]" (previous speaker closes → chair responds)
-  - "I give/now give the floor to..." followed by substantial text (chair hands off → next speaker begins)
-  - "I call upon/invite..." followed by that person speaking (introduction → speech starts)
-  - Clear Q&A pattern: question text → answer text in same paragraph
-  - Speaker closes their remarks then different speaker starts (evident from context change)
-  
-  SECONDARY INDICATORS (moderate probability):
-  - Paragraph ends with speaker closing PLUS contains procedural language at start
-  - Very long paragraph (>500 words) with clear topic/style shift midway
-  - AssemblyAI speaker label changes within words of paragraph
-  - Paragraph contains both first-person speech and third-person procedural description
-  
-  DO NOT FLAG based on:
-  - Single instances of "Thank" (e.g., "Thank God", "Thank goodness") - these are NOT transitions
-  - Pure procedural paragraphs from chair with no other speaker mixed in
-  - Long speeches with rhetorical questions or quoted speech
-  - Paragraphs where speaker refers to themselves in third person
-  
-- When genuinely uncertain, flag it - false positives are acceptable, we'll verify
-- Only set to false when confident the entire paragraph is one continuous speaker
+Your task is to determine: Does this paragraph contain speech from multiple different people?
+
+Focus on WHO IS SPEAKING, not keyword patterns. Ask yourself:
+- Is the entire paragraph spoken by one person?
+- Or does it contain words from multiple different speakers?
+
+Common scenarios where paragraphs mix speakers:
+  - Previous speaker finishes their remarks, then chair/moderator responds
+  - Chair gives floor to someone, and that person begins speaking
+  - Question and answer both captured in same paragraph
+  - Brief exchanges between people in informal settings
+  - Speaker concludes, procedural language follows
+
+Helpful indicators (but not hard rules):
+  - Shift from one person's remarks to another person's procedural language
+  - Topic/tone/perspective changes midway through paragraph
+  - First-person speech mixed with third-person procedural descriptions
+  - AssemblyAI speaker labels changing within the paragraph
+  - Phrases like "I give/invite/call upon [Name]" followed by more text
+
+NOT mixed speakers:
+  - Opening courtesies within one person's speech ("Thank you, Chair. Today I will discuss...")
+  - One person's continuous remarks, even if long or referring to others
+  - Rhetorical questions, quotes, or historical references within one speech
+  - Pure procedural language from one chair/moderator
+
+When uncertain, flag it - we'll verify during resegmentation. The goal is to catch genuine multi-speaker paragraphs while avoiding obvious false positives.
 
 ${IDENTIFICATION_RULES}
 
@@ -406,7 +403,7 @@ ${COMMON_ABBREVIATIONS}
 
 ${SCHEMA_DEFINITIONS}
 
-has_multiple_speakers: Boolean indicating if this paragraph contains speech from multiple speakers. Set to true only when paragraph clearly mixes different speakers' words.
+has_multiple_speakers: Boolean - Does this paragraph contain words spoken by multiple different people? True if multiple speakers' words are mixed together, false if one person speaks the entire paragraph.
 `,
       },
       {
