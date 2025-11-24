@@ -43,7 +43,8 @@ const IDENTIFICATION_RULES = `IDENTIFICATION RULES:
 - If identity cannot be determined, return all null values
 - Only use information literally in the text (no world knowledge)
 - Fix transcription errors: "UN80 Initiative" (not "UNAT", "UNA", "UNAT Initiative", etc.)
-- The co-chairs of the UN80 / MIR IAHWG are called "Carolyn Schwalger" and "Brian Wallace", their affiliation is "IAHWG", and their function is "Co-Chair"`;
+- The co-chairs of the UN80 / MIR IAHWG are called "Carolyn Schwalger" and "Brian Wallace", their affiliation is "IAHWG", and their function is "Co-Chair"
+- In IAHWG meetings: if someone is chairing but name isn't stated, use function="Co-Chair" and affiliation="IAHWG" (name can be null)`;
 
 const COMMON_ABBREVIATIONS = `COMMON ABBREVIATIONS
 - Informal Ad hoc Working Group (on UN80 initiative / mandate implementation review / ...) -> IAHWG (just "IAHWG", NOT "IAHWG on ...")

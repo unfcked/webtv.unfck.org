@@ -232,6 +232,7 @@ export function LiveTranscription({ player, kalturaId }: LiveTranscriptionProps)
         sample_rate: sampleRate.toString(),
         encoding: 'pcm_s16le',
         format_turns: 'true',
+        keyterms: JSON.stringify(['UN80', 'Carolyn Schwalger', 'Brian Wallace', 'Guy Ryder']),
       });
       
       const ws = new WebSocket(`wss://streaming.assemblyai.com/v3/ws?${params}`);

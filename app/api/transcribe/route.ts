@@ -134,6 +134,12 @@ export async function POST(request: NextRequest) {
     const submitBody = {
       audio_url: audioUrl,
       speaker_labels: true,
+      keyterms_prompt: [
+        'UN80',
+        'Carolyn Schwalger',
+        'Brian Wallace',
+        'Guy Ryder',
+      ],
     };
     
     console.log('Submitting to AssemblyAI:', { 
