@@ -56,6 +56,16 @@ function videoToRecord(video: Video): Omit<VideoRecord, 'created_at' | 'updated_
 }
 
 function recordToVideo(record: VideoRecord, hasTranscript: boolean): Video {
+  // Convert duration from seconds to HH:MM:SS for status calculation
+  const durationSeconds = record.duration || 0;
+  const hours = Math.floor(durationSeconds / 3600);
+  const minutes = Math.floor((durationSeconds % 3600) / 60);
+  const seconds = durationSeconds % 60;
+  const durationHMS = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  
+  // Calculate status based on scheduled time and duration
+  const status = calculateStatus(record.scheduled_time, durationHMS);
+  
   return {
     id: record.asset_id,
     url: record.url,
@@ -65,7 +75,7 @@ function recordToVideo(record: VideoRecord, hasTranscript: boolean): Video {
     duration: record.duration ? `${record.duration} min` : '',
     date: record.date,
     scheduledTime: record.scheduled_time,
-    status: 'finished', // Will be recalculated by caller if needed
+    status,
     eventCode: record.event_code,
     eventType: record.event_type,
     body: record.body,
@@ -293,8 +303,9 @@ export async function getVideoById(videoId: string, maxDaysBack: number = 30): P
 
 export async function getScheduleVideos(days: number = 7, useCacheFirst: boolean = true): Promise<Video[]> {
   let allVideos: Video[] = [];
+  const recentDaysToAlwaysScrape = 3; // Always scrape last 3 days for new videos
   
-  // Step 1: Try Turso cache if enabled
+  // Step 1: Try Turso cache if enabled (but always scrape recent days)
   if (useCacheFirst) {
     try {
       const { getRecentVideos } = await import('./turso');
@@ -310,7 +321,65 @@ export async function getScheduleVideos(days: number = 7, useCacheFirst: boolean
           recordToVideo(record, record.entry_id ? transcriptedSet.has(record.entry_id) : false)
         );
         
-        return allVideos;
+        // Always scrape recent days to catch new videos
+        const recentDates: string[] = [];
+        const today = new Date();
+        
+        // Fetch tomorrow's videos
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        recentDates.push(formatDate(tomorrow));
+        
+        // Fetch last N days
+        for (let i = 0; i < recentDaysToAlwaysScrape; i++) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          recentDates.push(formatDate(date));
+        }
+        
+        console.log(`Scraping ${recentDates.length} recent days for new videos`);
+        const recentResults = await Promise.all(recentDates.map(fetchVideosForDate));
+        const recentVideos = recentResults.flat();
+        
+        // Merge with cached videos (recent videos take precedence)
+        const videoMap = new Map(allVideos.map(v => [v.id, v]));
+        for (const video of recentVideos) {
+          videoMap.set(video.id, video);
+        }
+        allVideos = Array.from(videoMap.values());
+        
+        // Resolve entry IDs and save new videos to cache
+        const entryIdResolutions = await Promise.all(
+          recentVideos.map(async (video) => {
+            const entryId = await resolveEntryId(video.id);
+            
+            if (entryId) {
+              const record = videoToRecord(video);
+              record.entry_id = entryId;
+              saveVideo(record).catch(err => 
+                console.warn('Failed to cache video:', video.id, err)
+              );
+            } else {
+              saveVideo(videoToRecord(video)).catch(err => 
+                console.warn('Failed to cache video:', video.id, err)
+              );
+            }
+            
+            return { videoId: video.id, entryId };
+          })
+        );
+        
+        // Update hasTranscript for all videos
+        const entryIdMap = new Map(entryIdResolutions.map(r => [r.videoId, r.entryId]));
+        allVideos.forEach(video => {
+          const entryId = entryIdMap.get(video.id);
+          if (entryId) {
+            video.hasTranscript = transcriptedSet.has(entryId);
+          }
+        });
+        
+        // Sort by date descending
+        return allVideos.sort((a, b) => b.date.localeCompare(a.date));
       }
     } catch (error) {
       console.warn('Cache lookup failed, falling back to scraping:', error);
