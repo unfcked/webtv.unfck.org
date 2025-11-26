@@ -33,16 +33,10 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
     return parsedEvents;
   }, [videos]);
 
-  if (events.length === 0) {
-    return (
-      <div className="text-center text-gray-500 py-12">
-        No UN80 initiative videos found
-      </div>
-    );
-  }
-
   // Calculate positions with unified chronological positioning
   const positions = useMemo(() => {
+    if (events.length === 0) return [];
+    
     const minCardHeight = 100; // Estimated card height
     const minSpacing = 30; // Minimum spacing between consecutive cards
     
@@ -78,6 +72,14 @@ export function VideoTimeline({ videos }: { videos: Video[] }) {
     
     return finalPositions;
   }, [events]);
+
+  if (events.length === 0) {
+    return (
+      <div className="text-center text-gray-500 py-12">
+        No UN80 initiative videos found
+      </div>
+    );
+  }
 
   return (
     <div className="relative py-8">
